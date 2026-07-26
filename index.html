@@ -336,6 +336,28 @@ AFRAME.registerComponent('skywriter', {
   }
 });
 
+// ---------- player collision: walking cannot pass through buildings ----------
+AFRAME.registerComponent('player-collide', {
+  init: function(){ this.prev=new THREE.Vector3(); this.wp=new THREE.Vector3(); this.has=false; },
+  tick: function(){
+    const rm=this.el.sceneEl.components['ride-manager'];
+    if (rm && rm.busy){ this.has=false; return; }   // cinematics steer freely
+    this.el.object3D.getWorldPosition(this.wp);
+    if (blocked(this.wp.x, this.wp.y, this.wp.z, 0.6)){
+      if (this.has) this.el.object3D.position.copy(this.prev);
+    } else { this.prev.copy(this.el.object3D.position); this.has=true; }
+  }
+});
+
+// ---------- follow-rig: copy the rig's position each frame, ignore rotation ----------
+AFRAME.registerComponent('follow-rig', {
+  init: function(){ this.rig=null; },
+  tick: function(){
+    if (!this.rig) this.rig=document.querySelector('#rig');
+    if (this.rig) this.el.object3D.position.copy(this.rig.object3D.position);
+  }
+});
+
 // ---------- touch look: vertical + horizontal drag on phones/tablets ----------
 AFRAME.registerComponent('touch-look', {
   init: function(){
@@ -423,7 +445,7 @@ AFRAME.registerComponent('stereo-sbs', {
       }catch(e){}
     });
     document.body.appendChild(btn);
-    window.addEventListener('keydown', e=>{ if(e.key==='s'||e.key==='S') btn.click(); });
+
 
     this.patched=false;
     this._stereoFrames=0;
@@ -478,6 +500,16 @@ AFRAME.registerComponent('perf-tune', {
     const mobile=AFRAME.utils.device.isMobile();
     this.el.renderer.setPixelRatio(
       Math.min(window.devicePixelRatio||1, mobile?1.5:2));
+    // hide the built-in VR button unless real immersive WebXR exists;
+    // its legacy Cardboard-polyfill mode (lens-distorted) confuses more
+    // than it helps — our 3D SBS button covers phone viewers
+    const sc=this.el;
+    const hideUi=()=>{ sc.setAttribute('xr-mode-ui','enabled',false);
+                       sc.setAttribute('vr-mode-ui','enabled',false); };
+    if (navigator.xr && navigator.xr.isSessionSupported)
+      navigator.xr.isSessionSupported('immersive-vr')
+        .then(ok=>{ if(!ok) hideUi(); }).catch(hideUi);
+    else hideUi();
   }
 });
 
@@ -771,11 +803,11 @@ AFRAME.registerComponent('ride-manager', {
           desc=document.querySelector('#descendPanel'),
           msg=document.querySelector('#cabMsg'),
           camEl=document.querySelector('[camera]');
-    const SHAFT={x:HERO.x+HERO.w/2+2.6, z:HERO.z+HERO.d/2+2.6};
+    const SHAFT={x:HERO.x+HERO.w/2+3.8, z:HERO.z+HERO.d/2+3.8};
     const TOP=HERO.h+2.3;   // cab floor flush with the deck surface
     const self=this;
     this.rig=rig; this.camEl=camEl;
-    this.doorPos=new THREE.Vector3(-26.4,0,-20);  // the elevator landing
+    this.doorPos=new THREE.Vector3(-25.2,0,-18.7);  // the elevator landing
     this.busy=false; this.atTop=false;
     const snd=()=>SND.ref();
     const wait=ms=>new Promise(r=>setTimeout(r,ms));
@@ -882,7 +914,7 @@ AFRAME.registerComponent('ride-manager', {
       await wait(1000);
       await riseTo(0, 45000);
       // park the car at street level, doors open, step out
-      dock.setAttribute('position','-26.4 0 -26.4');
+      dock.setAttribute('position','-25.2 0 -25.2');
       snd().ding();
       snd().doorSlide();
       snd().setState('street');
@@ -921,6 +953,12 @@ AFRAME.registerComponent('ride-manager', {
       tapStart=null;
       if (moved<15) trigger(e);
     }, {passive:true});
+    // open on a view up the canyions: mostly towers and sky
+    setTimeout(()=>{
+      const lc=camEl.components['look-controls'];
+      if (lc && lc.pitchObject) lc.pitchObject.rotation.x = 0.55;   // ~32 deg up
+    }, 0);
+
     door.addEventListener('click', ()=>self.startRide());
     desc.addEventListener('click', ()=>self.startDescend());
   },
@@ -981,7 +1019,7 @@ AFRAME.registerComponent('ride-manager', {
   <a-plane id="muralR" src="#paintR" width="40" height="53" position="48 42 -32" rotation="0 -65 0"></a-plane>
 
   <!-- ===== street entrance on the hero tower ===== -->
-  <a-entity id="enterDoor" class="clickable" position="-38 0 -28.9">
+  <a-entity id="enterDoor" class="clickable" position="-38 0 -28.9" scale="0.42 0.42 1">
     <a-plane width="7" height="9" position="0 4.5 0" material="color:#0d1420"></a-plane>
     <a-plane width="5.4" height="7.6" position="0 3.9 0.05"
              material="color:#274a6e; emissive:#3556a0; emissiveIntensity:0.5; transparent:true; opacity:0.9"></a-plane>
@@ -1005,7 +1043,7 @@ AFRAME.registerComponent('ride-manager', {
   </a-entity>
 
   <!-- glass elevator shaft: frame rails on the tower's outside corner -->
-  <a-entity id="shaft" position="-26.4 0 -26.4">
+  <a-entity id="shaft" position="-25.2 0 -25.2">
     <a-box width="0.5" depth="0.5" height="643" position="-2.4 321 -2.4" color="#8fa7bd"></a-box>
     <a-box width="0.5" depth="0.5" height="643" position=" 2.4 321  2.4" color="#8fa7bd"></a-box>
     <a-box width="0.5" depth="0.5" height="643" position="-2.4 321  2.4" color="#8fa7bd"></a-box>
@@ -1048,29 +1086,32 @@ AFRAME.registerComponent('ride-manager', {
 
   <!-- ===== the rig: you + the glass cab that travels with you ===== -->
   <a-entity id="rig" position="0 0 0">
-    <a-entity camera position="0 1.6 0" look-controls="touchEnabled: false; magicWindowTrackingEnabled: false" touch-look wasd-controls="acceleration: 120">
+    <a-entity camera position="0 1.6 0" look-controls="touchEnabled: false; magicWindowTrackingEnabled: false" touch-look player-collide wasd-controls="acceleration: 120">
       <a-cursor color="#ffdca0" raycaster="objects: .clickable; far: 60"></a-cursor>
     </a-entity>
-    <a-entity id="cab" visible="false">
-      <a-box width="4.4" height="0.18" depth="4.4" position="0 0.02 0" color="#27405e"></a-box>
-      <a-plane width="4.4" height="3" position="0 1.6 -2.2"
-               material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
-      <a-plane width="4.4" height="3" position="0 1.6 2.2" rotation="0 180 0"
-               material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
-      <a-plane width="4.4" height="3" position="-2.2 1.6 0" rotation="0 90 0"
-               material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
-      <a-plane width="4.4" height="3" position="2.2 1.6 0" rotation="0 -90 0"
-               material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
-      <a-box width="4.4" height="0.15" depth="4.4" position="0 3.1 0" color="#27405e"></a-box>
-      <a-text id="cabMsg" value="" align="center" position="0 2.6 -2.1" width="8"
-              color="#ffdca0"></a-text>
-    </a-entity>
+  </a-entity>
+
+  <!-- the riding car: follows the rig's POSITION only (never its rotation),
+       so turning your head or the boarding turn cannot spin the elevator -->
+  <a-entity id="cab" visible="false" follow-rig>
+    <a-box width="4.4" height="0.18" depth="4.4" position="0 0.02 0" color="#27405e"></a-box>
+    <a-plane width="4.4" height="3" position="0 1.6 -2.2"
+             material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
+    <a-plane width="4.4" height="3" position="0 1.6 2.2" rotation="0 180 0"
+             material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
+    <a-plane width="4.4" height="3" position="-2.2 1.6 0" rotation="0 90 0"
+             material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
+    <a-plane width="4.4" height="3" position="2.2 1.6 0" rotation="0 -90 0"
+             material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
+    <a-box width="4.4" height="0.15" depth="4.4" position="0 3.1 0" color="#27405e"></a-box>
+    <a-text id="cabMsg" value="" align="center" position="1.55 2.6 1.55" rotation="0 225 0"
+            width="8" color="#ffdca0"></a-text>
   </a-entity>
 
   <!-- the parked glass car: visible at the shaft so you walk into a real
        elevator instead of one materializing around you. It swaps with the
        rig-attached car when you board, and waits at whichever end you left. -->
-  <a-entity id="cabDock" position="-26.4 0 -26.4">
+  <a-entity id="cabDock" position="-25.2 0 -25.2">
     <a-box width="4.4" height="0.18" depth="4.4" position="0 0.02 0" color="#27405e"></a-box>
     <a-plane width="4.4" height="3" position="0 1.6 -2.2"
              material="color:#bcd6ea; transparent:true; opacity:0.18; side:double"></a-plane>
