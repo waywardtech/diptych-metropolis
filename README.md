@@ -1,5 +1,7 @@
 # Diptych Metropolis
 
+**▶ Try it live: https://waywardtech.github.io/diptych-metropolis/** (desktop, phone, Cardboard-style viewer or WebXR headset)
+
 A virtual city grown from a painting.
 
 This project translates an abstract mixed-media diptych into an explorable WebXR
@@ -85,6 +87,20 @@ photographs you add.
   reverse.
 - On phones, render resolution is capped and particle counts halved; the
   audio is voiced to remain audible on small speakers.
+
+## FAQ
+
+**Why does it show a blank page when I open the file directly?**
+Browsers block the features it needs over `file://`. Use the live link or `python3 -m http.server`.
+
+**It won't use my phone's motion sensors.**
+On iOS, allow the motion-permission prompt. It only appears over HTTPS or localhost.
+
+**Can I hang my own paintings?**
+Yes. Add `left.jpg` and `right.jpg` to the repo root. Without them, procedural stand-ins are painted.
+
+**How heavy is it?**
+About 1.4 MB, with no external requests. It's tuned to stay within mobile Safari's memory limits.
 
 ## License
 
